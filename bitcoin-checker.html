@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bitcoin Private Key Checker</title>
+    <style>
+        body { font-family: Arial; background: #f5f5f5; margin: 0; padding: 40px; }
+        .container { background: #fff; max-width: 400px; margin: auto; border-radius: 12px; padding: 24px; box-shadow: 0 0 24px #0001; }
+        h2 { color: #1a6b2e; }
+        label, input, button { font-size: 1.1em; }
+        input { width: 100%; padding: 8px; margin-top: 8px; margin-bottom: 16px; }
+        .result { margin-top: 20px; background: #e7ffe7; border-radius: 8px; padding: 12px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/elliptic@6.5.4/dist/elliptic.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bs58@5.0.0/dist/bs58.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h2>Bitcoin Private Key Checker</h2>
+        <form id="form">
+            <label>Decimal Private Key:</label>
+            <input type="text" id="decimal" required placeholder="Məsələn: 1234567890">
+            <button type="submit">Yoxla</button>
+        </form>
+        <div class="result" id="result"></div>
+    </div>
+    <script>
+        async function getBalance(address) {
+            try {
+                const r = await fetch(`https://blockchain.info/rawaddr/${address}`);
+                if (!r.ok) return "API limit / Error";
+                const data = await r.json();
+                return (data.final_balance / 1e8) + " BTC";
+            } catch {
+                return "Error";
+            }
+        }
+
+        function decimalToHex(d) {
+            let h = BigInt(d).toString(16);
+            return h.padStart(64, '0');
+        }
+
+        async function computeBTC() {
+            let dec = document.getElementById("decimal").value.trim();
+            if (!/^\d+$/.test(dec)) return "Decimal yazılmalıdır!";
+            let hex = decimalToHex(dec);
+
+            // EC key pair
+            const EC = elliptic.ec; const ec = new EC('secp256k1');
+            let key = ec.keyFromPrivate(hex, 'hex');
+            let pub = key.getPublic().encode('hex');
+            let pubBytes = Uint8Array.from(Buffer.from(pub, 'hex'));
+
+            // SHA256, RIPEMD160
+            let sha256 = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(pub));
+            let ripemd160 = CryptoJS.RIPEMD160(sha256).toString();
+
+            // Add network prefix (00)
+            let prefixed = "00" + ripemd160;
+
+            // Double SHA256 for checksum
+            let hash1 = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(prefixed)).toString();
+            let hash2 = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(hash1)).toString();
+            let checksum = hash2.substr(0, 8);
+
+            // Address base58
+            let full = prefixed + checksum;
+            let address = bs58.encode(Buffer.from(full, 'hex'));
+
+            // Balansı tap
+            let balance = await getBalance(address);
+
+            // Result göstər
+            document.getElementById("result").innerHTML = `
+                <b>BTC Ünvan:</b> <code>${address}</code><br>
+                <b>Private key (hex):</b> <code>${hex}</code><br>
+                <b>Balans:</b> <b>${balance}</b>
+            `;
+        }
+
+        document.getElementById("form").onsubmit = (e) => {
+            e.preventDefault();
+            document.getElementById("result").innerHTML = "Yoxlanır...";
+            computeBTC();
+        };
+    </script>
+</body>
+</html>
